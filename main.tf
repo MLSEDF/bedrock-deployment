@@ -44,7 +44,6 @@ resource "aws_lambda_function" "bedrock_lambda" {
   handler       = "lambda_function.lambda_handler"
 
   filename         = "lambda.zip"
-  source_code_hash = filebase64sha256("lambda.zip")
 
   environment {
     variables = {
