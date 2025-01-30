@@ -1,7 +1,7 @@
 variable "aws_region" {
   description = "La région AWS où déployer les ressources"
   type        = string
-  default     = "eu-north-1"
+  default     = "eu-west-3"
 }
 
 variable "lambda_function_name" {
