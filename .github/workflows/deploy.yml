@@ -1,4 +1,4 @@
-name: 'Terraform Apply - Bedrock'
+name: 'Terraform Apply'
 
 on:
   workflow_dispatch:
@@ -13,23 +13,21 @@ jobs:
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_REGION: "eu-north-1"
-
-    defaults:
-      run:
-        shell: bash
-        working-directory: ./terraform
+      AWS_REGION: "eu-west-3"
 
     steps:
-    - name: Checkout
+    - name: Checkout Repository
       uses: actions/checkout@v3
 
-    - name: Set Account ID
+    - name: Ensure Terraform Directory Exists
+      run: mkdir -p terraform
+
+    - name: Set AWS Account ID
       id: account
       run: |
         echo "ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_ENV
 
-    - name: Create S3 bucket for Terraform state
+    - name: Create S3 Bucket for Terraform State
       run: |
         BUCKET_NAME="bedrock-state-files-${{ env.ACCOUNT_ID }}"
         if ! aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
@@ -39,7 +37,7 @@ jobs:
           echo "S3 bucket already exists: $BUCKET_NAME"
         fi
 
-    - name: Check for existing state file
+    - name: Check for Existing State File
       id: check_state
       run: |
         if aws s3api head-object --bucket bedrock-state-files-${{ env.ACCOUNT_ID }} --key terraform.tfstate 2>/dev/null; then
@@ -51,18 +49,22 @@ jobs:
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v2
       with:
-        terraform_version: 1.6.0
+        terraform_version: 1.6.0  
 
-    - name: Terraform Init
-      run: terraform init
+    - name: Retrieve Terraform State (if exists)
+      run: |
+        if [[ "$STATE_EXISTS" == "true" ]]; then
+          aws s3 cp s3://bedrock-state-files-${{ env.ACCOUNT_ID }}/terraform.tfstate ./terraform/terraform.tfstate || true
+        fi
 
-    - name: Terraform Plan
-      run: terraform plan -input=false
+    - name: Terraform Init & Apply
+      run: |
+        cd terraform
+        terraform init
+        terraform plan -input=false
+        terraform apply -auto-approve -input=false
 
-    - name: Terraform Apply
-      run: terraform apply -auto-approve -input=false
-
-    - name: Save Terraform state to S3
+    - name: Upload Terraform State to S3
       if: always()
       run: |
-        aws s3 cp ./terraform.tfstate s3://bedrock-state-files-${{ env.ACCOUNT_ID }}/terraform.tfstate
+        aws s3 cp ./terraform/terraform.tfstate s3://bedrock-state-files-${{ env.ACCOUNT_ID }}/terraform.tfstate
