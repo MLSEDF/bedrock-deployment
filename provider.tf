@@ -9,10 +9,10 @@ terraform {
   backend "s3" {
     bucket = "bedrock-state-files"
     key    = "terraform.tfstate"
-    region = "eu-north-1"
+    region = "eu-west-3"
   }
 }
 
 provider "aws" {
-  region = "eu-north-1"
+  region = "eu-west-3"
 }
