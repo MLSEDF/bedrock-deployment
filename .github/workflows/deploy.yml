@@ -21,8 +21,12 @@ jobs:
         with:
           terraform_version: 1.5.0
 
-      - name: Package Lambda
-        run: bash package_lambda.sh
+      - name: Create and Package Lambda
+        run: |
+          echo '#!/bin/bash' > package_lambda.sh
+          echo 'zip lambda.zip lambda_function.py' >> package_lambda.sh
+          chmod +x package_lambda.sh
+          bash package_lambda.sh
 
       - name: Initialize Terraform
         run: terraform init
