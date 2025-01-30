@@ -27,6 +27,9 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: eu-west-3
 
+    - name: Validate AWS Credentials
+      run: aws sts get-caller-identity
+
     - name: Set AWS Account ID
       id: account
       run: |
@@ -70,7 +73,7 @@ jobs:
         terraform plan -input=false
         terraform apply -auto-approve -input=false
 
-    - name: Check if Terraform State Exists
+    - name: Ensure Terraform State Exists
       run: |
         if [ ! -f "./terraform/terraform.tfstate" ]; then
           echo "Error: Terraform state file missing!"
