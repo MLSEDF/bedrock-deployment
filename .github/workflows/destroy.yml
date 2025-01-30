@@ -13,15 +13,54 @@ jobs:
     env:
       AWS_REGION: "eu-west-3"
 
+    defaults:
+      run:
+        shell: bash
+
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v3
-
-    - name: Ensure Terraform Directory Exists
-      run: mkdir -p terraform
 
     - name: Configure AWS Credentials
       uses: aws-actions/configure-aws-credentials@v2
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: eu-west-3
+
+    - name: Set AWS Account ID
+      id: account
+      run: |
+        echo "ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_ENV
+
+    - name: Check for existing Terraform state file
+      id: check_state
+      run: |
+        if aws s3api head-object --bucket bedrock-state-files-${{ env.ACCOUNT_ID }} --key terraform.tfstate 2>/dev/null; then
+          echo "STATE_EXISTS=true" >> $GITHUB_ENV
+        else
+          echo "STATE_EXISTS=false" >> $GITHUB_ENV
+        fi
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: 1.6.0
+
+    - name: Terraform Destroy Operations
+      run: |
+        if [[ "$STATE_EXISTS" == "true" ]]; then
+          aws s3 cp s3://bedrock-state-files-${{ env.ACCOUNT_ID }}/terraform.tfstate ./terraform.tfstate || true
+
+          terraform init -backend=false  # Désactivation du backend
+          
+          terraform destroy -auto-approve -input=false && echo "DESTROY_SUCCESS=true" >> $GITHUB_ENV || echo "DESTROY_SUCCESS=false" >> $GITHUB_ENV
+        else
+          echo "No state file found. Skipping destroy operation."
+          echo "DESTROY_SUCCESS=false" >> $GITHUB_ENV
+        fi
+
+    - name: Remove tfstate from S3
+      if: env.DESTROY_SUCCESS == 'true'
+      run: |
+        aws s3 rm s3://bedrock-state-files-${{ env.ACCOUNT_ID }}/terraform.tfstate
