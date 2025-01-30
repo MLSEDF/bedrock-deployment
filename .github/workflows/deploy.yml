@@ -1,42 +1,68 @@
-name: Deploy to AWS Bedrock
+name: 'Terraform Apply - Bedrock'
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
+
+permissions: write-all
 
 jobs:
-  deploy:
+  terraform:
+    name: 'Terraform'
     runs-on: ubuntu-latest
+    environment: production
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: "eu-north-1"
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./terraform
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+    - name: Checkout
+      uses: actions/checkout@v3
 
-      - name: Configure AWS Credentials
-        run: |
-          echo "Setting AWS credentials..."
-          echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> $GITHUB_ENV
-          echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> $GITHUB_ENV
-          echo "AWS_REGION=eu-north-1" >> $GITHUB_ENV
+    - name: Set Account ID
+      id: account
+      run: |
+        echo "ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_ENV
 
-      - name: Install Terraform
-        uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: 1.5.0
+    - name: Create S3 bucket for Terraform state
+      run: |
+        BUCKET_NAME="bedrock-state-files-${{ env.ACCOUNT_ID }}"
+        if ! aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
+          echo "Creating S3 bucket: $BUCKET_NAME"
+          aws s3api create-bucket --bucket "$BUCKET_NAME" --region $AWS_REGION
+        else
+          echo "S3 bucket already exists: $BUCKET_NAME"
+        fi
 
-      - name: Create and Package Lambda
-        run: |
-          echo '#!/bin/bash' > package_lambda.sh
-          echo 'zip lambda.zip lambda_function.py' >> package_lambda.sh
-          chmod +x package_lambda.sh
-          bash package_lambda.sh
+    - name: Check for existing state file
+      id: check_state
+      run: |
+        if aws s3api head-object --bucket bedrock-state-files-${{ env.ACCOUNT_ID }} --key terraform.tfstate 2>/dev/null; then
+          echo "STATE_EXISTS=true" >> $GITHUB_ENV
+        else
+          echo "STATE_EXISTS=false" >> $GITHUB_ENV
+        fi
 
-      - name: Initialize Terraform
-        run: terraform init
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: 1.6.0
 
-      - name: Plan Terraform
-        run: terraform plan
+    - name: Terraform Init
+      run: terraform init
 
-      - name: Apply Terraform
-        run: terraform apply -auto-approve
+    - name: Terraform Plan
+      run: terraform plan -input=false
+
+    - name: Terraform Apply
+      run: terraform apply -auto-approve -input=false
+
+    - name: Save Terraform state to S3
+      if: always()
+      run: |
+        aws s3 cp ./terraform.tfstate s3://bedrock-state-files-${{ env.ACCOUNT_ID }}/terraform.tfstate
